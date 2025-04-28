@@ -1,0 +1,945 @@
+---
+title: "RESQUE Profile for `r params$FullName`"
+embed-resources: true
+output: html
+format:
+  html:
+    toc: true
+    toc-location: left
+params:
+  FullName: "Max Mustermann Demoprofile"
+  json_path: "/Users/felix/LMU/DGPs Kommission Open Science/RESQUE/Eichstätt/resque_kaiser_merged.json"
+  show_inter: true
+---
+
+
+```{r setup0}
+#| include: false
+
+# "/Users/felix/LMU/DGPs Kommission Open Science/RESQUE/Mainz Test 2/resque_schönbrodt_0.6.2.json"
+# "/Users/felix/LMU/DGPs Kommission Open Science/RESQUE/Eichstätt/resque_schönbrodt_0.7.2.json"
+
+library(knitr)
+library(kableExtra)
+
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  echo=FALSE,
+  message=FALSE,
+  warning=FALSE,
+  out.width="100%"
+)
+
+# Set global chunk options for tables
+options(knitr.table.format = "html")
+
+# Set default kableExtra styling options
+knit_hooks$set(kable = function(x, options) {
+  kable(x, format = "html") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+})
+
+RED <- "#e4090c"
+DARKRED <- "#c51819"
+YELLOW <- "#f7cf07"
+GREEN <- "#3af72c"
+DARKGREEN <- "#1da412"
+LIGHTGREY <- "#e8e8e8"
+```
+
+
+```{r demo_warning}
+#| results: "asis"
+
+if (is.null(params$json_path)) {
+  cat("\n\n::: {.callout-warning}\nNo data supplied - using demo profile\n:::\n\n")
+}
+```
+
+
+```{r setup}
+#| results: "asis"
+#| warnings: false
+
+library(RESQUER)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(forcats)
+library(wordcloud)
+library(knitr)
+library(openalexR)
+library(tibble)
+library(OAmetrics)
+library(DT)
+
+if (is.null(params$json_path)) {
+  applicant_json <- read_RESQUE(file=system.file("extdata/demo_profiles/resque_Schoenbrodt.json", package="RESQUER"))
+} else {
+  applicant_raw_json <- readLines(params$json_path, warn=FALSE)
+  applicant_json <- read_RESQUE(file=params$json_path, verbose=FALSE)
+}
+
+applicant <- preprocess(applicant=applicant_json, verbose=FALSE)
+
+if (is.na(applicant$meta$ORCID)) {
+  cat("\n\n::: {.callout-warning title='No ORCID supplied - Cannot compute internationalization and interdisciplinarity indexes'}\n:::\n\n")
+}
+```
+
+**The "fingerprint" of how research is conducted, when only the best work is submitted.** 
+
+```{r overview_table}
+overview_tab <- data.frame(
+  col1 = c("Name", "Analysis date", "Academic age (years since PhD, minus child care etc.)", "# of analysed outputs"),
+  col2 = c(
+    applicant$meta$FullName, 
+    as.Date(applicant$meta$date_analysis) |> as.character(), 
+    paste0(applicant$meta$AcademicAge, " (PhD: ", applicant$meta$YearPhD, "; subtracted years: ", applicant$meta$AcademicAgeBonus, ")"),
+    nrow(applicant$indicators)
+  )
+)
+
+# add all extra variable that have been added to core-meta to the table
+# ------------------------------------------------------------
+extra_meta <- names(applicant$meta)
+
+# remove unnecessary variables
+extra_meta <- extra_meta[!extra_meta %in% c("type", "position", "LastName", "FirstName", "YearPhD", "AcademicAgeBonus", "HonestyDisclaimer_Yes", "FullName", "AcademicAge", "OA_author_id", "date_exported", "date_added", "date_created", "date_modified", "date_analysis", "MeritStatement", "P_MeritStatement")]
+
+for (i in extra_meta) {
+  overview_tab <- rbind(overview_tab, c(i, applicant$meta[i] |> as.character()))
+}
+
+
+# Apply dark grey text color to all cells
+overview_tab[] <- lapply(overview_tab, function(x) {
+  cell_spec(x, color = "darkgrey")
+})
+
+# Create the table without column headers and with smaller text
+kable(overview_tab, escape = FALSE, col.names = c("<b>Overview of analysis</b>:", "")) %>% 
+  kable_styling(font_size = 9, bootstrap_options = c("hover", "condensed"), full_width = FALSE) %>% 
+  row_spec(1:nrow(overview_tab), extra_css = "padding-top:1px; padding-bottom:1px;")
+```
+
+
+
+::: {.callout-note}
+This is a preview which shows some visual summaries of the RESQUE indicators. Not all indicators have been covered yet, and things might change substantially. No bonus points have been assigned to the theory indicators yet, and also not to some other indicators of sample characteristics.
+:::
+
+```{r show preprocessing_notes}
+#| results: asis
+
+if (any(applicant$preprocessing_notes != "")) {
+  cat(paste0(
+    "::: {.callout-note title='Preprocessing Notes'}\n",
+    paste0("- ", applicant$preprocessing_notes, collapse="\n"), 
+    "\n:::\n\n"))
+}
+```
+
+
+Some parts of this profile are purely descriptive. For example, it is summarized the type of participant samples, or whether researchers predominantly work with psychophysiological data or rather focus on questionnaire studies. 
+
+Other parts contain an evaluative aspect: For example, research that is reproducible, which allows independent auditing because it provides open data and scripts is, *ceteris paribus*, better than research that does not have these aspects. Research outputs with these objective quality criteria of methodological rigor can gain "bonus points" which are summed across all provided research outputs and contribute to the [Rigor Profile Overview](#rigor-profile-overview).
+
+::: {.callout-note title="Methods: Is the rigor score systematically biased against certain fields?" collapse="true"}
+We took care not to systematically disadvantage certain fields or research styles. Generally, the rigor score is a relative score, computed as “percentage of maximal points” (POMP) score across all indicators that are applicable. For any indicator, one can choose the option "not applicable" if an indicator *principally* cannot be attained by a research output. The points of such non-applicable indicators are removed from the maximum points and therefore do not lower the computed relative rigor score. However, in order to prevent gaming of this scheme, any "not applicable" claim needs to be justified. Only when the justification is accepted by the committee, the point is removed. With no or insufficient justification, in contrast, the indicator is set to "not available" (=0 points) and the maximum points are not adjusted.
+:::
+
+
+<!-- Conditionally render the section on Overall Merit Statement -->
+```{r OverallMeritStatement}
+#| eval: !expr is.null(applicant$meta$MeritStatement) == FALSE
+#| results: asis
+
+cat('## Overall Merit Statement
+<div style="font-size:90%; background:#fffce6; ">\n')
+cat(applicant$meta$MeritStatement)
+cat("\n</div>\n")
+```
+
+
+## Submitted research outputs
+
+<!--
+The following table shows the types of submitted outputs, and whether they have been flagged as suitable for the rating sheet (*yes*) or not (*no*).
+
+```{r}
+kable(table(applicant$indicators$type, factor(applicant$indicators$P_Suitable, levels=c("Yes", "No"))))
+```
+
+The `r nrow(applicant$indicators[applicant$indicators$type == "Publication", ])` publications had the following types:
+
+```{r}
+kable(table(applicant$indicators[applicant$indicators$type == "Publication", "P_TypePublication"]))
+```
+-->
+
+
+The `r nrow(applicant$indicators[applicant$indicators$type == "Publication", ])` publications had the following methodological type:
+
+```{r ROs}
+dat_tM <- applicant$indicators %>% select(contains("P_TypeMethod"))
+
+# add missing columns
+expected_columns<- c(
+  P_TypeMethod_EmpiricalQuantitative = FALSE,
+  P_TypeMethod_EmpiricalQualitative = FALSE,
+  P_TypeMethod_MetaAnalysis = FALSE, 
+  P_TypeMethod_Computational = FALSE,
+  P_TypeMethod_Theoretical = FALSE, 
+  P_TypeMethod_Nonempirical = FALSE,
+  P_TypeMethod_OtherMethod = FALSE
+)
+# adding those columns to df1
+dat_tM <- add_column(dat_tM, !!!expected_columns[setdiff(names(expected_columns), names(dat_tM))])
+
+# remove the free text field for this table
+dat_tM$P_TypeMethod_Other <- NULL
+
+dat_tM_tab <- pivot_longer(dat_tM, everything()) %>% 
+  group_by(name) %>% 
+  summarise(paper_count=sum(value, na.rm=TRUE))
+
+dat_tM_tab$name <- str_replace(dat_tM_tab$name, "P_TypeMethod_", "")
+dat_tM_tab <- unCamel(df=dat_tM_tab, cname="name")
+
+colnames(dat_tM_tab) <- c("Type of method", "# papers")
+kable(dat_tM_tab[dat_tM_tab[, 2] > 0, ])
+```
+
+
+### Team science in publications?
+
+```{r teamscience}
+#| results: "asis"
+
+  cat(paste0(nrow(applicant$OAlex_papers), " out of ", sum(applicant$indicators$type == "Publication"), " submitted publications could be automatically retrieved with OpenAlex.\n"))
+  
+  applicant$OAlex_papers$n_authors <- sapply(applicant$OAlex_papers$author, nrow)
+  
+  applicant$OAlex_papers$team_category <- cut(applicant$OAlex_papers$n_authors, breaks=c(0, 1, 5, 15, Inf), labels=c("Single authored", "Small team (<= 5 co-authors)", "Large team (6-15 co-authors)", "Big Team (>= 16 co-authors)"))
+  
+  team_tab <- table(applicant$OAlex_papers$team_category) |> as.data.frame()
+  team_tab$perc <- paste0(round(team_tab$Freq*100 / nrow(applicant$OAlex_papers)), "%")
+  colnames(team_tab) <- c("Team category", "Frequency", "%")
+```
+
+```{r TS_showtable}
+kable(team_tab, align=c("l", "r", "r"))
+```
+
+## Types of research data
+
+<!-- 
+TODO: This does not work without Simulated data.
+
+The applicant submitted r sum(is.na(applicant$rigor_pubs$P_Data_Source_Simulated) | !applicant$rigor_pubs$P_Data_Source_Simulated) papers with empirical data. 
+-->
+
+```{r datatypes}
+#| results: asis
+
+
+get_data_types <- function(selector, headings=c("Data type", "# of papers")) {
+  df <- applicant$rigor_pubs |> select(contains(selector))
+
+  tab <- data.frame(
+    c1 = colnames(df) |> str_replace(selector, "") |> unCamel0(),
+    c2 = apply(df, 2, function(x) sum(x == TRUE, na.rm=TRUE))
+  )
+  
+  tab <- tab %>% 
+    filter(c2 > 0) %>%
+    arrange(-c2)
+  
+  rownames(tab) <- NULL
+  colnames(tab) <- headings
+  return(tab)
+}
+
+# for some reason, you need to explicitly set the table.attr when you use `results: asis`
+get_data_types(selector="P_Data_Type_") |> kable(table.attr = "class='table table-sm table-striped small'") 
+
+if (any(applicant$rigor_pubs$P_Data_Type_Behavioral, na.rm = TRUE)) {
+  cat("\n\n### ⤷ Types of behavioral data\n\n")
+  get_data_types("P_Data_TypeBehavioral_") |> kable(table.attr = "class='table table-sm table-striped small'")  
+}
+if (any(applicant$rigor_pubs$P_Data_Type_Physiological, na.rm = TRUE)) {
+  cat("\n\n### ⤷ Types of physiological data\n\n")
+  get_data_types(selector="P_Data_TypePhysiological_") |> kable(table.attr = "class='table table-sm table-striped small'")
+}
+
+```
+
+
+## Types of samples
+
+```{r ensure_compatibility}
+# Compatibility with old versions:
+if (nrow(applicant$rigor_pubs) > 0) {
+  if (!"P_Sample" %in% names(applicant$rigor_pubs)) {applicant$rigor_pubs$P_Sample <- NA}
+  if (!"P_Sample_CrossCultural" %in% names(applicant$rigor_pubs)) {applicant$rigor_pubs$P_Sample_CrossCultural <- NA}
+  applicant$rigor_pubs$P_Sample[is.na(applicant$rigor_pubs$P_Sample)] <- FALSE
+}
+```
+
+
+Type of population/sample and cultural background for the `r sum(applicant$rigor_pubs$P_Data_Source_NewOwn & applicant$rigor_pubs$P_Sample != "Other", na.rm=TRUE)` papers with own new data collection ("Other" excluded):
+
+```{r}
+#| fig-width: 6
+#| fig-height: 4
+#| out-width: 100%
+#| out-height: auto
+
+Sample_Type <- factor(
+  x = na.omit(applicant$rigor_pubs$P_Sample),
+  levels = c("MostlyPsychStudents", "MostlyStudents", "General", "Specific", "Rare"),
+  labels = c("(Predominantly) psychology students", 
+             "(Predominantly) students, interdisciplinary", 
+             "Non-specific general population", 
+             "Specific target population (e.g., working nurses)", 
+             "Specific target population, hard to acquire (e.g., babies, inmates, rare disorders)")
+)
+
+
+
+df <- data.frame(
+  Sample_Type = Sample_Type, 
+  Sample_CrossCultural = factor(applicant$rigor_pubs$P_Sample_CrossCultural, levels=c("NotApplicable", "SingleCulture", "MultipleCultures"), labels=c("Not applicable", "Single cultural or ethnic background", "Multiple cultural or ethnic backgrounds"))
+)
+
+df <- na.omit(df)
+
+# Count occurrences of each combination, and add missing factor levels (to also show the non-existent cells)
+heatmap_data <- df %>%
+  filter(Sample_CrossCultural != "NotApplicable") %>%
+  count(Sample_Type, Sample_CrossCultural) %>%
+  complete(Sample_Type, Sample_CrossCultural, fill = list(n = 0)) |> 
+  na.omit()
+
+ggplot(heatmap_data, aes(x = Sample_CrossCultural, y = Sample_Type, fill = n)) +
+  geom_tile() +
+  geom_text(aes(label = n), color="#FFFFFF") +  
+  scale_fill_gradient(low = "#DDDDDD", high = "darkblue") +
+  theme_minimal() +
+  labs(x = "", y = "") +
+  theme(legend.position = "none") +
+  scale_y_discrete(limits = rev(levels(df$Sample_Type))) +  # Reverse the order on the y-axis
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+
+```{r}
+#| results: asis
+
+if (any(!is.na(applicant$rigor_pubs$P_Sample_RareOther))) {
+  res <- "**Rare samples used in studies:**\n\n"
+  
+  rare_sample_position <- which(!is.na(applicant$rigor_pubs$P_Sample_RareOther))
+  for (i in rare_sample_position) {
+    res <- paste0(res, "- ", applicant$rigor_pubs$P_Sample_RareOther[i], "\n")
+    if (!is.na(applicant$rigor_pubs$P_SampleSize[i])) {
+      res <- paste0(res, "  - <span style='font-size:80%;'>*Sample Size*: ", str_replace_all(applicant$rigor_pubs$P_SampleSize[i], "\\n", " "), "</span>\n")
+    } else {
+      res <- paste0(res, "  - <span style='font-size:80%;'>*Sample Size*: not provided</span>\n")
+    }
+  }
+  cat(res)
+}
+```
+
+
+
+
+
+## Types of Research Designs
+
+```{r research_design}
+#| fig-width: 6
+#| fig-height: 4
+#| out-width: 100%
+#| out-height: auto
+
+df <- data.frame(
+  Longitudinal_Type = factor(x = applicant$rigor_pubs$P_Longitudinal,
+    levels = c("Longitudinal", "Crosssectional"),
+    labels = c("Longitudinal", "Cross-sectional")
+    ),
+  DesignExperimental_Type  = factor(applicant$rigor_pubs$P_DesignExperimental,
+      levels=c("Observational", "Experimental"),
+      labels=c("Observational", "Experimental"))
+)
+
+df <- na.omit(df)
+
+# Count occurrences of each combination, and add missing factor levels (to also show the non-existent cells)
+heatmap_data <- df %>%
+  count(Longitudinal_Type, DesignExperimental_Type) %>%
+  complete(Longitudinal_Type, DesignExperimental_Type, fill = list(n = 0)) |> 
+  na.omit()
+
+ggplot(heatmap_data, aes(x = Longitudinal_Type, y = DesignExperimental_Type, fill = n)) +
+  geom_tile() +
+  geom_text(aes(label = n), color="#FFFFFF") +  
+  scale_fill_gradient(low = "#dddddd", high = "darkblue") +
+  theme_minimal() +
+  labs(x = "", y = "") +
+  theme(legend.position = "none") +
+  scale_y_discrete(limits = rev(levels(df$Sample_Type))) +  # Reverse the order on the y-axis
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+
+
+<!-- Conditionally render the CRediT section -->
+```{r}
+#| out.width: 100%
+#| fig.width: 8
+#| fig.height: 5
+#| comment: NA
+#| results: asis
+
+if (!all(applicant$credit$Degree == "NoRole")) {
+  hideCRediT <- FALSE
+  cat(paste0("
+# Contributorship profile (CRediT roles)
+
+Based on ", nrow(applicant$indicators), " submitted publications, this is the self-reported contributorship profile:  
+
+::: {.panel-tabset}
+
+## Full CRediT profile
+"))
+  
+  credit_barchart(applicant$credit, ordered=FALSE) |> print()
+  
+  cat("\n\n## Compact CRediT profile\n")
+  
+  credit_barchart(applicant$credit, ordered=FALSE, compact=TRUE)  |> print()
+  
+  cat("\n:::")
+  
+} else {
+  cat("
+<hr>
+*[Note: The CRediT profile was omitted as no data is provided.]*
+<hr>")
+  hideCRediT <- TRUE
+}
+```
+
+
+# Indicators of Research Transparency and Reproducibility
+
+::: {.callout-note title="Methods: Computation of the relative rigor score" collapse="true"}
+The relative rigor score (RRS) is computed as a “percentage of maximal points” (POMP) score of multiple indicators. The indicators are grouped into four categories: Open Data, Preregistration, Reproducible Code & Verification, and Open Materials. Indicators that are flagged as "not applicable" are removed from the maximum points and therefore do not lower the RRS.
+:::
+
+The following charts are based on `r nrow(applicant$rigor_pubs)` scoreable publications.
+
+**What is a "good" Relative Rigor Score?**
+
+The RESQUE indicators cover current best practices, which often are not yet used broadly. Therefore the scores might look meager, even for very good papers. Tentative norm values for the overall rigor score, based on some first evaluation studies are:
+
+- 10-20% can be considered average
+- 30% is very good
+- \>40% is excellent.
+
+
+::: {.callout-note collapse="true" title="How to read the small charts"}
+
+- *Quantity of openness*: How *often* did they do it?<br>Each small square represents one publication, where the open practice (e.g., open data) has been performed (<span style="width: 10px; height: 10px; background-color: `r DARKGREEN`; display: inline-block;"></span>), *not* performed (<span style="width: 10px; height: 10px; background-color: `r DARKRED`; display: inline-block;"></span>), or was not applicable (<span style="width: 10px; height: 10px; background-color: `r LIGHTGREY`; display: inline-block;"></span>). \
+- *Quality of openness*: How *well* did they do it?<br>The colors of the bar below the squares are based on normative values of the Relative Rigor Score (i.e., "What quality of a practice could reasonably be expected in that field?").
+
+![](assets/Overview_chart_explanation1.png){width=450}
+:::
+
+```{r overview_transparency}
+
+tab_RRS <- data.frame(FullName=applicant$meta$FullName)
+
+tab_RRS$RRS_overall = applicant$RRS$overall_score
+
+tab_RRS$RRS_OD = applicant$RRS$sector_scores %>% filter(category == "Open Data") %>% pull(rel_score)
+tab_RRS$RRS_OM = applicant$RRS$sector_scores %>% filter(category == "Open Materials") %>% pull(rel_score)
+tab_RRS$RRS_PreReg = applicant$RRS$sector_scores %>% filter(category == "Preregistration") %>% pull(rel_score)
+tab_RRS$RRS_OC = applicant$RRS$sector_scores %>% filter(str_detect(category, "Reproducible Code")) %>% pull(rel_score)
+
+tab_RRS[, "Relative Rigor Score"] <- NA
+RRS_vec <- c(
+  tab_RRS$RRS_OD,
+  tab_RRS$RRS_OM,
+  tab_RRS$RRS_PreReg,
+  tab_RRS$RRS_OC)
+
+RRS_vec_sorted <- RRS_vec[order(RRS_vec, decreasing = TRUE)]
+tab_RRS[1, "Relative Rigor Score"] <- circle_layer(
+    value = tab_RRS$RRS_overall[1], 
+    colors = get_color(RRS_vec_sorted), 
+    weights = applicant$RRS$sector_scores$max_points[1:4][order(RRS_vec, decreasing = TRUE)],
+    outer_width = 60)
+
+
+tab_RRS[, "Open Data"] <- paste(
+  applicant$OS_pie$OpenData[c("Yes", "Partial", "No", "notApplicable")] |> unlist() |> waffle_html(),
+  sapply(tab_RRS$RRS_OD, ministack, height=14)
+)
+
+
+tab_RRS[, "Open Material"] <- paste(
+  applicant$OS_pie$OpenMaterial[c("Yes", "Partial", "No", "notApplicable")] |> unlist() |> waffle_html(),
+  sapply(tab_RRS$RRS_OM, ministack, height=14)
+)
+
+tab_RRS[, "Preregistration"] <- paste(
+  applicant$OS_pie$Prereg[c("Registered Report", "Preregistration", "Not preregistered", "Not Applicable")] |> unlist() |> waffle_html(),
+  sapply(tab_RRS$RRS_PreReg, ministack, height=14)
+)
+
+if (all(is.na(applicant$rigor_pubs$P_IndependentVerification))) {
+  code_heading <- "Reproducible Code"
+} else {
+  code_heading <- "Reproducible Code \n& Verification"
+}
+tab_RRS[, code_heading] <- paste(
+  applicant$OS_pie$OpenCode[c("Yes", "Partial", "No", "notApplicable")] |> unlist() |> waffle_html(),
+  sapply(tab_RRS$RRS_OC, ministack, height=14)
+)
+
+
+
+# dom = 't', # Removes "Show X entries" and search bar
+# The RRS_* columns are needed for sorting, but should not be displayed
+datatable(
+  tab_RRS[, 7:11], 
+  escape=FALSE, 
+  rownames=FALSE,
+  width = '100%',
+  options = list(
+    ordering = FALSE,
+    #scrollCollapse = TRUE,
+    dom = 't', 
+    scrollX = FALSE)
+)
+```
+
+
+::: {.callout-note title="How to read the radar chart" collapse="true"}
+The general philosophy of RESQUE is: It doesn't matter so much what kind of research you do - but when you do it, you should do it in a high quality.
+The radar chart with the **Relative Rigor Score** helps you to see how many quality indicators have been fulfilled in multiple areas of methodological rigor.
+
+- The **width** of each sector corresponds to the **maximal number of rigor points** one could gain. If many indicators are flagged as "not applicable", then the maximal points get reduced and the sector gets more narrow.
+- The **colored part** of each sector shows the **achieved rigor points**. An entirely grey sector indicates that no rigor points could be awarded at all.
+- The quality indicators measure both the *presence* of a practice (e.g., is Open Data available?) and the *quality* of the practice (e.g., is does it have a codebook? Does have a persistent identifier?). Hence, even if the pie charts in the table above show the presence, a lack of quality indicators can lead to a low rigor score.
+:::
+
+```{r Radarchart}
+#| fig.width=8
+if (!applicant$all_empty & !any(is.na(applicant$RRS))) {
+  RRS_radarchart(compute_RRS(applicant, sectors="weighted"), base_size=20, overall_score=TRUE)
+}
+```
+
+
+
+
+
+# Scientific impact
+
+
+[BIP! Scholar](https://bip.imsi.athenarc.gr/site/home) (a non-commercial open-source service to facilitate fair researcher assessment) provides **five impact classes** based on norm values:
+
+::: {style="font-size: 80%;"}
+<style>.table-equal-width th, .table-equal-width td {width: 20%; text-align: center; }
+</style>
+
+<div class="table-equal-width">
+| 🚀 Top 0.01% | ️🌟 Top 0.1%  |️✨ Top 1% | Top 10% | Average (Bottom 90%) |
+|--------------|--------------|----------|--------|----------------------|
+</div>
+
+:::
+
+
+::: {.callout-note title="Methods: Computation of the Popularity metric" collapse="true"}
+This indicator reflects impact/attention of an article in the research community at large. It is based on *AttRank*, a variation of PageRank (known from the Google search algorithm) that accounts for the temporal evolution of the citation network. By that, it alleviates the bias against younger publications, which have not had the chance to accumulate a lot of citations. It models a researcher's preference to read papers which received a lot of attention recently. It was evaluated (and vetted) in its performance to predict the ranking of papers concerning their *future impact* (i.e., citations). For more details, see [BIP! glossary](https://bip.imsi.athenarc.gr/site/indicators) and the references therein.
+:::
+
+::: {.callout-note title="Methods: CRediT Levels of involvement" collapse="true"}
+We categorized papers into levels of involvement, based on the degrees of contributorship:
+
+```{r credit_involvement_tab}
+
+credit_inv_tab <- data.frame(
+  "Involvement Level" = c("Very High", "High", "Medium", "Low"),
+  "Definition" = c(
+    "(>=3 roles as *lead*) OR (>= 5 roles as (*lead* OR *equal*))",
+    "(1-2 roles as *lead*) OR (3-4 roles as *equal*)",
+    "(1-2 roles as *equal*) OR (>= 5 roles as *support*)",
+    "All other combinations"
+  )
+)
+
+t1 <- table(applicant$indicators$CRediT_involvement) %>% as.data.frame() 
+
+# this is an ugly way of merging ...
+credit_inv_tab$Publications <- 0
+credit_inv_tab$Publications[1] <- t1[t1$Var1 == "Very High", 2]
+credit_inv_tab$Publications[2] <- t1[t1$Var1 == "High", 2]
+credit_inv_tab$Publications[3] <- t1[t1$Var1 == "Medium", 2]
+
+
+kable(credit_inv_tab)
+```
+:::
+
+From `r nrow(applicant$indicators)` submitted papers of `r applicant$meta$FullName`, `r nrow(applicant$BIP %>% filter(pop_class <= "C4"))` `r ifelse(nrow(applicant$BIP %>% filter(pop_class <= "C4")) == 1, "was", "were")` in the top 10% popularity class of all papers or better.
+
+
+
+```{r impact_table}
+#| results: asis
+
+pop_sel <- applicant$BIP %>% 
+  select(doi, "three_year_cc", cc,	pop_class)
+
+pop_sel$Label <- factor(pop_sel$pop_class, levels=paste0("C", 1:5), labels=c("Top 0.01%", "Top 0.1%", "Top 1%", "Top 10%", "Average"))
+pop_sel$pop_class <- NULL
+
+pop_sel <- pop_sel |> 
+  left_join(applicant$indicators %>% select(doi, Title = title_links_html, RRS_overall, CRediT_involvement, CRediT_involvement_roles, P_MeritStatement), by="doi") %>%
+  left_join(applicant$FNCS %>% select(doi, FNCS, FNPR), by="doi") %>%
+  relocate(Title) |> 
+  relocate(FNCS, .after = cc) |> 
+  relocate(FNPR, .after = FNCS) |> 
+  mutate(RRS_overall = paste0(round(RRS_overall*100), "%")) %>%
+  arrange(Label, -FNCS)
+
+pop_sel$RRS_overall[pop_sel$RRS_overall == "NA%"] <- "-"
+
+pop_sel$merit <- cell_spec(
+  ifelse(!is.na(pop_sel$P_MeritStatement) & pop_sel$P_MeritStatement != "",
+# Show Merit Statement as popover
+    '<i class="bi bi-info-circle text-primary fs-5"></i>',
+    "(n.a.)"),
+  escape=FALSE,
+  popover = spec_popover(content = pop_sel$P_MeritStatement, title = NULL, position = "right")
+    )
+
+# hack: Remove popovers for n.a. cells
+pop_sel$merit[is.na(pop_sel$P_MeritStatement) | pop_sel$P_MeritStatement == ""] <- cell_spec("(n.a.)",
+  escape=FALSE, popover = NULL)
+
+# This has been added as a popover; column can now be deleted
+pop_sel$P_MeritStatement <- NULL
+
+colnames(pop_sel) <- c("Title", "doi", "3 year citation count", "Overall citation count", "FNCS", "FNPR", "Popularity", "Rigor Score", "Candidates' CRediT involvement", "Candidates' CRediT main roles", "Merit Statement")
+
+pop_sel$FNCS <- round(pop_sel$FNCS, 1)
+pop_sel$FNPR <- paste0(round(pop_sel$FNPR*100, 1), "%")
+pop_sel$doi <- NULL
+pop_sel$FNPR <- NULL # removed, because it is not always congruent with the popularity category; could be confusing
+
+# add some emojis:
+pop_sel$Title[pop_sel$Popularity == "Top 0.01%"] <- paste0("🚀", pop_sel$Title[which(pop_sel$Popularity == "Top 0.01%")])
+pop_sel$Title[pop_sel$Popularity == "Top 0.1%"] <- paste0("️🌟", pop_sel$Title[which(pop_sel$Popularity == "Top 0.1%")])
+pop_sel$Title[pop_sel$Popularity == "Top 1%"] <- paste0("️✨", pop_sel$Title[which(pop_sel$Popularity == "Top 1%")])
+
+if (hideCRediT == "true") {
+  pop_sel <- pop_sel[, 1:8]
+}
+
+high_impact <- pop_sel[which(pop_sel$Popularity %in% c("Top 0.01%", "Top 0.1%", "Top 1%", "Top 10%")), ]
+low_impact <- pop_sel[which(is.na(pop_sel$Popularity) | !pop_sel$Popularity %in% c("Top 0.01%", "Top 0.1%", "Top 1%", "Top 10%")), ]
+```
+
+
+## Highly popular publications
+
+::: {style="font-size: 80%;"}
+```{r}
+#| results: asis
+
+if (nrow(high_impact) > 0) {
+  
+  kable(high_impact, escape = FALSE, table.attr = "class='table table-sm table-striped small' quarto-disable-processing=true") |> 
+    footnote(general="FNCS = Field- and age-normalized citation score: This is the factor by which a publication is cited more often than other publications from the same field and the same publication year. A value of 2, for example, indicates that the publication got cited twice as much as comparable publications.")
+  
+} else {
+  cat("No publications submitted with popularity class 'Top 10%' or higher.")
+}
+```
+:::
+
+## Publications without citation metrics & average popular publications
+
+For very new publications, no citation metrics can be computed.
+
+::: {style="font-size: 80%;"}
+```{r}
+#| results: asis
+
+if (nrow(low_impact) > 0) {
+  kable(low_impact, escape = FALSE, table.attr = "class='table table-sm table-striped small' quarto-disable-processing=true") |> 
+    footnote(general="FNCS = Field- and age-normalized citation score: This is the factor by which a publication is cited more often than other publications from the same field and the same publication year. A value of 2, for example, indicates that the publication got cited twice as much as comparable publications.")
+} else {
+  cat("No publications submitted with popularity class 'Top 10%' or higher.")
+}
+```
+:::
+
+
+
+<!-- Conditionally render the section on interdisciplinarity -->
+```{r inter_section}
+#| eval: !expr length(applicant$internationalization) > 1 & params$show_inter == TRUE
+#| results: asis
+
+system.file("profile_qmd/assets/Inter_intro.md", package="RESQUER") |>
+  readLines() |> paste(collapse = "\n") |> cat()
+
+if (!is.na(applicant$internationalization$international_evenness)) {
+  n_subfields <- min(nrow(applicant$interdisciplinarity$subfields_tab), 6)
+
+  internationality_string <- paste0(sum(applicant$internationalization$country_codes_repeated$n), " unique identifiable co-authors:<br><ul><li>", applicant$internationalization$perc_international, "% from ", nrow(applicant$internationalization$country_codes_repeated)-1, " international countries</li><li>", applicant$internationalization$perc_same_country, "% from the same country</li></ul>")
+  
+  n_countries <- min(nrow(applicant$internationalization$country_codes_repeated), 10)
+  country_tab <- applicant$internationalization$country_codes_repeated
+  colnames(country_tab) <- c("Co-authors' Country Code", "# of Co-authors")
+} else {
+  internationality_string <- "Could not compute internationality."
+}
+
+if (!is.na(applicant$interdisciplinarity$interdisc_evenness)) {
+  subfield_tab <- applicant$interdisciplinarity$subfields_tab[1:n_subfields, ]
+  colnames(subfield_tab) <- c("Subfield", "# of papers")
+
+  interdisciplinarity_string <- paste0(nrow(applicant$interdisciplinarity$primary_fields_tab_reduced), " primary fields: <ul>", paste0(
+  "<li>", applicant$interdisciplinarity$primary_fields_tab_reduced$primary_field, " (", applicant$interdisciplinarity$primary_fields_tab_reduced$n, ")</li>", collapse=" "), "</ul>")
+} else {
+  interdisciplinarity_string <- "Interdisciplinarity could not be computed."
+}
+
+
+if (!is.na(applicant$internationalization$international_evenness)) {
+cat(paste0('
+````{=html}
+<div style="display: flex; flex-direction: column; border: 1px solid #BBBBBB;">
+    <!-- Row 1 -->
+    <div style="display: flex;">
+        <div style="flex: 1; border: 1px solid #BBBBBB; padding: 10px; text-align: center"><b>Internationality</b></div>
+        <div style="flex: 1; border: 1px solid #BBBBBB; padding: 10px; text-align: center"><b>Interdisciplinarity</b></div>
+    </div>
+    <!-- Row 2 -->
+    <div style="display: flex;">
+        <div style="flex: 1; border: 1px solid #BBBBBB; padding: 10px;">', slider(applicant$internationalization$international_evenness |> round(2), "Only within country co-authors", "Broad coauthor network from many countries"), '</div>
+        <div style="flex: 1; border: 1px solid #BBBBBB; padding: 10px;">', slider(applicant$interdisciplinarity$interdisc_evenness |> round(2), "Single discipline", "Many disciplines"), '</div>
+    </div>
+    
+        <!-- Row 3 -->
+    <div style="display: flex;">
+        <div style="flex: 1; border: 1px solid #BBBBBB; padding: 10px;">', internationality_string, '</div>
+        <div style="flex: 1; border: 1px solid #BBBBBB; padding: 10px;">', interdisciplinarity_string, '</div>
+    </div>
+    
+    <!-- Row 4 -->
+    <div style="display: flex;">
+        <div style="flex: 1; border: 1px solid #BBBBBB; padding: 10px; font-size:80%;">', kable(country_tab, format="html", escape = FALSE, table.attr = "class=\'table table-sm table-striped small\' quarto-disable-processing=true"), '</div>
+        <div style="flex: 1; border: 1px solid #BBBBBB; padding: 10px; font-size:80%;">The main subfields are (multiple categories per paper are possible): ', kable(subfield_tab, format="html", escape = FALSE, table.attr = "class=\'table table-sm table-striped small\' quarto-disable-processing=true"), '</div>
+    </div>
+</div>
+````
+'))
+} else {
+  cat("
+::: {.callout-warning title='No OpenAlex author ID available - indexes on internationality and interdisciplinarity cannot be computed.'}
+:::")
+}
+```
+
+
+
+# "Not applicable" justifications
+
+Choosing "not applicable" indicates that an indicator *principally* cannot be attained by a research output. To avoid bias against certain research fields, the points of such non-applicable indicators are removed from the maximum points and therefore do not lower the computed relative rigor score. However, in order to prevent gaming of this scheme, any "not applicable" claim needs to be justified. Only when the justification is accepted by the committee, the point is removed. With no or insufficent justification, in contrast, the indicator should be set to "not available" (=0 points) and the maximum points are not adjusted. (Note: The latter correction currently needs to be done manually in the json file.)
+
+
+```{r}
+#| results='asis'
+
+# cols with "NotApplicable"
+cols_with_NotApplicable <- apply(applicant$indicators, 2, function(col) any(col == "NotApplicable")) |> na.omit()
+colnames_with_NotApplicable <- names(cols_with_NotApplicable)[cols_with_NotApplicable == TRUE]
+
+# remove one field: P_MultiStudy has no explanation if "not applicable" is selected
+colnames_with_NotApplicable <- colnames_with_NotApplicable[colnames_with_NotApplicable != "P_MultiStudy"]
+
+if (length(colnames_with_NotApplicable) > 0) {
+  cat("These are all claims of non-applicability from this applicant:\n\n")
+  
+  for (i in colnames_with_NotApplicable) {
+    
+    # Only if the NAExplanation column exists ...
+    if (paste0(i, "_NAExplanation") %in% colnames(applicant$indicators)) {
+       # add corresponding explanation
+    cat(paste0("### ", i, "\n\n"))
+    
+    NotAppl <- applicant$indicators[applicant$indicators[, i] == "NotApplicable", c("Title", "Year", "DOI", i, paste0(i, "_NAExplanation"))]
+    NotAppl <- NotAppl[!is.na(NotAppl[, i]), ]
+    rownames(NotAppl) <- NULL
+    
+    NotAppl$Title <- paste0("[", NotAppl$Title, "](", NotAppl$DOI, ")")
+    NotAppl$DOI <- NULL
+    
+     # beware: within for-loops, kable() needs an explicit `print`
+    kable(NotAppl, table.attr = "class='table table-sm table-striped small' quarto-disable-processing=true") |> print()
+    }
+   
+  }
+} else {
+  cat("**The applicant had no claims of non-applicability.**\n\n")
+}
+```
+
+---
+
+*RESQUER package version: `r packageVersion("RESQUER") |> as.character()`*
+
+---
+
+
+
+
+<!-- ########################################################
+###########  TECHNICAL STUFF, DO NOT CHANGE #################
+############################################################# -->
+
+
+<!-- JS script to embed the raw json material -->
+<!-- Retrieve later, e.g. with JS:
+  const jsonData = JSON.parse(document.getElementById('raw-json-data').textContent);
+-->
+
+```{r embed_json}
+#| output: asis
+cat(sprintf('<script id="raw-json-data" type="application/json" style="display:none;">%s</script>',
+            paste(applicant_raw_json, collapse="\n")))
+
+```
+
+
+
+<!-- Custom script to show popovers -->
+```{=html}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  // Find all elements with data-toggle="popover"
+  const popoverElements = document.querySelectorAll('[data-toggle="popover"]');
+  
+  popoverElements.forEach(function(element) {
+    // Get attributes
+    const content = element.getAttribute('data-content');
+    const placement = element.getAttribute('data-placement') || 'top';
+    const trigger = element.getAttribute('data-trigger') || 'hover';
+    
+    // Style the trigger element
+    element.style.cursor = 'help';
+    element.style.borderBottom = '1px dotted #999';
+    element.style.position = 'relative';
+    element.style.display = 'inline-block';
+    
+    // Create the popup element
+    const popup = document.createElement('div');
+    popup.style.position = 'absolute';
+    popup.style.visibility = 'hidden';
+    popup.style.backgroundColor = '#fff';
+    popup.style.color = '#333';
+    popup.style.padding = '10px';
+    popup.style.borderRadius = '4px';
+    popup.style.boxShadow = '0 2px 10px rgba(0,0,0,0.2)';
+    popup.style.width = '300px';
+    popup.style.zIndex = '1000';
+    popup.style.fontSize = '0.85rem';
+    popup.style.lineHeight = '1.4';
+    popup.style.opacity = '0';
+    popup.style.transition = 'opacity 0.2s';
+    popup.style.pointerEvents = 'none'; // Prevents the popup from interfering with mouse events
+    popup.innerHTML = content;
+    
+    // Set placement
+    if (placement === 'left') {
+      popup.style.right = '100%';
+      popup.style.top = '50%';
+      popup.style.transform = 'translateY(-50%)';
+      popup.style.marginRight = '10px';
+    } else if (placement === 'right') {
+      popup.style.left = '100%';
+      popup.style.top = '50%';
+      popup.style.transform = 'translateY(-50%)';
+      popup.style.marginLeft = '10px';
+    } else if (placement === 'bottom') {
+      popup.style.top = '100%';
+      popup.style.left = '50%';
+      popup.style.transform = 'translateX(-50%)';
+      popup.style.marginTop = '10px';
+    } else { // default to top
+      popup.style.bottom = '100%';
+      popup.style.left = '50%';
+      popup.style.transform = 'translateX(-50%)';
+      popup.style.marginBottom = '10px';
+    }
+    
+    // Add popup to the DOM
+    element.appendChild(popup);
+    
+    // Handle trigger type
+    if (trigger === 'hover' || trigger === 'mouseenter') {
+      // Add hover event listeners
+      element.addEventListener('mouseenter', function() {
+        popup.style.visibility = 'visible';
+        popup.style.opacity = '1';
+      });
+      
+      element.addEventListener('mouseleave', function() {
+        popup.style.visibility = 'hidden';
+        popup.style.opacity = '0';
+      });
+    } else {
+      // For click triggers
+      element.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (popup.style.visibility === 'visible') {
+          popup.style.visibility = 'hidden';
+          popup.style.opacity = '0';
+        } else {
+          popup.style.visibility = 'visible';
+          popup.style.opacity = '1';
+        }
+      });
+      
+      // Close on click outside
+      document.addEventListener('click', function(e) {
+        if (!element.contains(e.target)) {
+          popup.style.visibility = 'hidden';
+          popup.style.opacity = '0';
+        }
+      });
+    }
+  });
+});
+</script>
+```

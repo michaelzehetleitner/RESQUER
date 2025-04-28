@@ -1,0 +1,506 @@
+---
+title: "RESQUE Overview for multiple candidates"
+embed-resources: true
+output: html
+format:
+  html:
+    toc: true
+    toc-location: left
+    df-print: paged
+    css: assets/overview_styles.css
+    page-layout: full
+    grid:
+      sidebar-width: 250px
+      body-width: 900px
+      margin-width: 100px
+      gutter-width: 1.5rem
+params:
+  json_folder: "/Users/felix/LMU/DGPs Kommission Open Science/RESQUE/Eichstätt"
+  anonymous: true
+  clear_cache: false
+---
+
+
+```{r setup0}
+#| include: false
+
+library(knitr)
+library(kableExtra)
+library(RESQUER)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(ggplot2)
+library(scales)
+library(forcats)
+library(wordcloud)
+library(openalexR)
+library(tibble)
+library(OAmetrics)
+library(sparkline)
+library(htmltools)
+library(DT)
+library(ggrepel)
+library(RColorBrewer)
+library(forcats)
+
+RED <- "#e4090c"
+DARKRED <- "#c51819"
+YELLOW <- "#f7cf07"
+GREEN <- "#3af72c"
+DARKGREEN <- "#1da412"
+LIGHTGREY <- "#e8e8e8"
+
+#* @param value 1 (=red), 2 (=yellow) or 3 (=green)
+dot <- function(value) {
+  color_map <- c(RED, YELLOW, GREEN)
+  # Retrieve the corresponding color for each value
+  colors <- color_map[as.integer(value)]
+  paste0('<span style="color:', colors, '">&#9679;</span>')
+}
+
+cut2 <- function(x, breaks) {
+  if (length(breaks) != 2) {
+    stop("In cut2(), you need exactly two breaks to get a traffic light rating.")
+  } else {
+    cut(x, c(-Inf, breaks, Inf), labels=FALSE)
+  }
+}
+
+
+index_to_letters <- function(index) {
+  letters <- LETTERS
+  result <- character(0)
+  while (index > 0) {
+    remainder <- (index - 1) %% 26
+    result <- paste0(letters[remainder + 1], result)
+    index <- (index - remainder - 1) %/% 26
+  }
+  return(result)
+}
+
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  echo=FALSE,
+  message=FALSE,
+  warning=FALSE,
+  out.width="100%"
+)
+
+# Set global chunk options for tables
+options(knitr.table.format = "html")
+
+# Set default kableExtra styling options
+knit_hooks$set(kable = function(x, options) {
+  kable(x, format = "html") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE)
+})
+```
+
+
+```{r normvalues}
+RRS_norms <- c(.25, .40)
+OD_norms <- c(.25, .40)
+OM_norms <- c(.4, .6)
+PreReg_norms <- c(.1, .2)
+Repro_norms <- c(.2, .3)
+Theory_norms <- c(.1, .2)
+```
+
+
+```{r setup}
+#| results: "asis"
+
+
+#params$json_folder = "/Users/felix/LMU/DGPs Kommission Open Science/RESQUE/Overview"
+
+if (is.null(params$json_folder)) {
+  # TODO: Load demo profiles if no folder with jsons is provided
+  #applicant_json <- read_RESQUE(file=system.file("extdata/demo_profiles/resque_Schoenbrodt.json", package="RESQUER"))
+} else {
+  
+  cache_file <- paste0(params$json_folder, "/applicant_data.RData")
+  
+  # Check if a cached, pre-computed file exists
+  if (file.exists(cache_file)) {
+    use_cache <- TRUE
+    load(cache_file)
+  } else {
+    use_cache <- FALSE
+    # Read all jsons in that folder
+    json_files <- list.files(params$json_folder, pattern="*.json", full.names=TRUE)
+    
+    applicant_list <- list()
+    
+    for (i in 1:length(json_files)) {
+        # print(paste0("Reading file #", i))
+        R <- read_RESQUE(file=json_files[i], verbose=FALSE)
+        applicant_list[[i]] <- preprocess(applicant=R, verbose=FALSE)
+    }
+    
+    # `store` stores more meta-information on the analysis
+    store <- list(
+      date_analysis = Sys.time()
+    )
+    
+    save(applicant_list, store, file=cache_file)
+  }
+  
+  if (params$anonymous == TRUE) {
+    for (i in 1:length(applicant_list)) {
+      applicant_list[[i]]$meta$LastName <- index_to_letters(i)
+      applicant_list[[i]]$meta$FirstName <- ""
+      applicant_list[[i]]$meta$FullName <- index_to_letters(i)
+    }
+  }
+  
+}
+
+```
+
+
+## Applicant descriptives
+
+*Note: Academic age is computed as years since PhD, minus self-reported times for childcare etc.*
+
+```{r descriptive_tab}
+
+overview_tab <- data.frame(
+  names = sapply(applicant_list, function(x) x$meta$LastName),
+  academic_age = sapply(applicant_list, function(x) x$meta$AcademicAge),
+  analysed_outputs = sapply(applicant_list, function(x) x$impact_pubs |> nrow())
+)
+
+datatable(
+  overview_tab, 
+  escape=TRUE, 
+  width = "700px",
+  class = 'compact',
+  options = list(
+    pageLength = 5, 
+    autoWidth = TRUE, 
+    scrollCollapse = TRUE,
+    columnDefs = list(list(width = 'auto', targets = '_all')),
+    dom = 't', 
+    paging = FALSE),
+  colnames= c("Name", "Academic age", "# of analysed publications")
+)
+```
+
+
+## Research Transparency
+
+You can click on the arrows in each column header (<img src="assets/DT_arrows.png" />) to sort by the respective Rigor Score.
+
+The Overall Rigor Score reflects current best practices, many of which are not yet widely adopted in the research community. As a result, even high-quality papers may receive relatively modest scores. Based on preliminary evaluation studies, the following rough benchmarks can be used to interpret the scores:
+
+  - 10-20%: Average
+  - 30%: Very good
+  - \>40%: Excellent.
+
+*(Note: The Overall Rigor Score presented here is based solely on the four transparency categories, excluding Theorizing. As a result, it may differ from the Overall Score in individual reports.)*
+
+::: {.callout-note collapse="true" title="How to read the small charts"}
+
+- *Quantity of openness*: How *often* did they do it?<br>Each small square represents one publication, where the open practice (e.g., open data) has been performed (<span style="width: 10px; height: 10px; background-color: `r DARKGREEN`; display: inline-block;"></span>), *not* performed (<span style="width: 10px; height: 10px; background-color: `r DARKRED`; display: inline-block;"></span>), or was not applicable (<span style="width: 10px; height: 10px; background-color: `r LIGHTGREY`; display: inline-block;"></span>). \
+- *Quality of openness*: How *well* did they do it?<br>The colors of the bar below the squares are based on normative values of the Relative Rigor Score (i.e., "What quality of a practice could reasonably be expected in that field?").
+
+![](assets/Overview_chart_explanation1.png){width=450}
+:::
+
+```{r overview_table2b}
+
+tab_RRS <- data.frame(
+  applicant = overview_tab$names
+  )
+
+tab_RRS$RRS_overall = sapply(applicant_list, function(x) {
+  sum(x$RRS$sector_scores$scores[1:4]) / sum(x$RRS$sector_scores$max_points[1:4])
+})
+tab_RRS$RRS_OD = sapply(applicant_list, function(x) x$RRS$sector_scores %>% filter(category == "Open Data") %>% pull(rel_score))
+tab_RRS$RRS_OM = sapply(applicant_list, function(x) x$RRS$sector_scores %>% filter(category == "Open Materials") %>% pull(rel_score))
+tab_RRS$RRS_PreReg = sapply(applicant_list, function(x) x$RRS$sector_scores %>% filter(category == "Preregistration") %>% pull(rel_score))
+tab_RRS$RRS_OC = sapply(applicant_list, function(x) x$RRS$sector_scores %>% filter(str_detect(category, "Reproducible Code")) %>% pull(rel_score))
+
+tab_RRS[, "Overall Rigor"] <- NA
+for (i in 1:nrow(tab_RRS)) {
+  RRS_vec <- c(
+    tab_RRS$RRS_OD[i],
+    tab_RRS$RRS_OM[i],
+    tab_RRS$RRS_PreReg[i],
+    tab_RRS$RRS_OC[i])
+  
+  RRS_vec_sorted <- RRS_vec[order(RRS_vec, decreasing = TRUE)]
+  tab_RRS[i, "Overall Rigor"] <- circle_layer(
+      value = tab_RRS$RRS_overall[i], 
+      colors = get_color(RRS_vec_sorted), 
+      weights = applicant_list[[i]]$RRS$sector_scores$max_points[1:4][order(RRS_vec, decreasing = TRUE)],
+      outer_width = 60)
+}
+
+
+tab_RRS[, "Open Data"] <- paste(
+  lapply(applicant_list, function(x) {x$OS_pie$OpenData[c("Yes", "Partial", "No", "notApplicable")] |> unlist()}) |> sapply(waffle_html),
+  sapply(tab_RRS$RRS_OD, ministack, height=14)
+)
+
+
+tab_RRS[, "Open Material"] <- paste(
+  lapply(applicant_list, function(x) {x$OS_pie$OpenMaterial[c("Yes", "Partial", "No", "notApplicable")] |> unlist()}) |> sapply(waffle_html),
+  sapply(tab_RRS$RRS_OM, ministack, height=14)
+)
+
+tab_RRS[, "Preregistration"] <- paste(
+  lapply(applicant_list, function(x) {x$OS_pie$Prereg[c("Registered Report", "Preregistration", "Not preregistered", "Not Applicable")] |> unlist()}) |> sapply(waffle_html),
+  sapply(tab_RRS$RRS_PreReg, ministack, height=14)
+)
+
+if (all(is.na(applicant_list[[1]]$rigor_pubs$P_IndependentVerification))) {
+  code_heading <- "Reproducible Code"
+} else {
+  code_heading <- "Reproducible Code \n& Verification"
+}
+tab_RRS[, code_heading] <- paste(
+  lapply(applicant_list, function(x) {x$OS_pie$OpenCode[c("Yes", "Partial", "No", "notApplicable")] |> unlist()}) |> sapply(waffle_html),
+  sapply(tab_RRS$RRS_OC, ministack, height=14)
+)
+
+
+
+# dom = 't', # Removes "Show X entries" and search bar
+# The RRS_* columns are needed for sorting, but should not be displayed
+datatable(
+  tab_RRS, 
+  escape=FALSE, 
+  options = list(
+    pageLength = 5, 
+    autoWidth = TRUE, 
+    dom = 't', 
+    paging = FALSE,
+    columnDefs = list(
+      list(targets = "Overall Rigor", orderData = 2), 
+      list(targets = "Open Data", orderData = 3),  # Sort OD by RRS_OD (which is the 5th column)
+      list(targets = "Open Material", orderData = 4),
+      list(targets = "Preregistration", orderData = 5),
+      list(targets = code_heading, orderData = 6),  
+      
+      list (targets = c(2:6), visible = FALSE) # Hide numeric sorting columns
+    ))
+)
+```
+
+
+
+## Designs & Samples
+
+What types of samples were involved? What types of data were collected?
+The bars represent the number of publications with that sample and data type.
+
+:::: {.columns}
+::: {.column width="45%"}
+```{r}
+#| results: asis
+
+horizontal_bar_chart(c(10, 10, 10), max_value=10, colors = brewer.pal(3, "Set1"), 300, 80, labels=c(
+"Students", 
+"General population", 
+"Specific target population" 
+), show_x_label = FALSE) |> HTML()
+```
+:::
+
+::: {.column width="10%"}
+<!-- empty column to create gap -->
+:::
+
+::: {.column width="45%"}
+```{r}
+#| results: asis
+
+horizontal_bar_chart(c(10, 10, 10, 10, 10), max_value = 10, colors = brewer.pal(5, "Set2"), 330, 130, labels=c("Questionnaire", "Behavioral", "Physiological","Interviews / Content Data / Content Coding", "Meta Analysis"), show_x_label = FALSE) |> HTML()
+```
+:::
+::::
+
+<br>
+
+```{r}
+tab_samples <- data.frame(
+  applicant = overview_tab$names
+)
+
+tab_samples$sample_type <- ""
+tab_samples$data_type <- ""
+for (i in 1:nrow(tab_samples)) {
+  
+  # Types of sample
+  #------------------------------------------
+  
+  Sample_Type <- factor(
+    x = na.omit(applicant_list[[i]]$rigor_pubs$P_Sample),
+    levels = c("MostlyPsychStudents", "MostlyStudents", "General", "Specific", "Rare")
+  )
+  
+  # Collapse levels:
+  # - Combine levels 1 ("MostlyPsychStudents") and 2 ("MostlyStudents")
+  # - Combine levels 4 ("Specific") and 5 ("Rare")
+  Sample_Type_collapsed <- fct_collapse(Sample_Type,
+    "Students" = c("MostlyPsychStudents", "MostlyStudents"),
+    "General population" = "General",
+    "Specific target population" = c("Specific", "Rare")
+  )
+
+  Sample_Type_count <- table(Sample_Type_collapsed, useNA="no") |> as.vector()
+  
+  tab_samples$sample_type[i] <- horizontal_bar_chart(Sample_Type_count, colors = brewer.pal(3, "Set1"), width=120, height=60)
+  
+  
+  # Types of data
+  #------------------------------------------
+  
+  df <- applicant_list[[i]]$rigor_pubs |> select(contains("P_Data_Type_"))
+  df <- add_variables(df, c("P_Data_Type_QuestionnaireSelfreport", "P_Data_Type_QuestionnaireOtherreport", "P_Data_Type_Behavioral", "P_Data_Type_Physiological", "P_Data_Type_Interviews", "P_Data_Type_ContentData", "P_Data_Type_Coding", "P_Data_Type_MetaAnalysis", "P_Data_Type_OtherType"), default=FALSE)
+
+  data_type_list <- c(
+    # Do not double count self and other reports
+    "Questionnaire" = sum(df$P_Data_Type_QuestionnaireSelfreport | df$P_Data_Type_QuestionnaireOtherreport, na.rm=TRUE),
+    "Behavioral" = sum(df |> select(contains("Behavioral")), na.rm=TRUE),
+    "Physiological" = sum(df |> select(contains("Physiological")), na.rm=TRUE),
+    "Interviews/Content Data/Content Coding" = sum(df |> select(contains(c("Interviews", "ContentData", "Coding"))), na.rm=TRUE),
+    "Meta Analysis" = sum(df |> select(contains("MetaAnalysis")), na.rm=TRUE)
+  )
+  
+  tab_samples$data_type[i] <- horizontal_bar_chart(
+    data_type_list, colors = brewer.pal(5, "Set2"), width=120, height=80)
+}
+
+
+
+# dom = 't', # Removes "Show X entries" and search bar
+datatable(
+  tab_samples, 
+  escape=FALSE, 
+  width = "700px",
+  class = 'compact',
+  options = list(
+    pageLength = 5, 
+    autoWidth = TRUE, 
+    scrollCollapse = TRUE,
+    columnDefs = list(list(width = 'auto', targets = '_all')),
+    dom = 't', 
+    paging = FALSE),
+  colnames=c("Applicant", "Type of sample", "Type of data")
+)
+```
+
+
+## Impact
+
+::: {.callout-note collapse="true" title="How to interpret the indices"}
+
+- **# of papers in top-10% of popularity**: How many papers are ranked in the top 10%, according to a popularity metric based on the AttentionRank algorithm. [This captures *current* impact dynamics (and less so "historical" citations of old papers).]{style="background: #f4fbc6;"}
+- **mean FNCS**: The median of field- and age-normalized citation scores: The FNCS is the factor by which a publication is cited more often than other publications from the same field and the same publication year. A value of 2, for example, indicates that the publications (on average) got cited twice as much as comparable publications. [This captures *cumulative* impact (across all papers, and also across all years of publication activity).]{style="background: #f4fbc6;"}. The background color of the cell indicates the [lower 25%]{style="background: #fbe3cc;"}, [middle 50%]{style="background: #fbf9cc;"} or [top 25%]{style="background: #daf9d7;"} of the applicant field.
+- **Highest citation count of a single paper**: The citation count (and publication year) of the single paper with the most citations.
+
+:::
+
+```{r}
+tab_impact <- data.frame(
+  applicant = overview_tab$names
+)
+
+# tab_impact$BIP_n_papers_top10 = paste0(
+#   sapply(applicant_list, function(x) x$BIP_n_papers_top10),
+#    " of ",
+#   sapply(applicant_list, function(x) x$impact_pubs |> nrow())
+# )
+
+top10 <- sapply(applicant_list, function(x) x$BIP_n_papers_top10)
+non_top10 <- sapply(applicant_list, function(x) x$impact_pubs |> nrow()) - top10
+
+tab_impact$BIP_n_papers_top10 <- ""
+
+for (i in 1:nrow(tab_impact)) {
+  tab_impact$BIP_n_papers_top10[i] <- waffle_html(
+    values = c(top10[i], non_top10[i]),
+    max_value = 10, rows = 1,
+    #colors = c("#fff614", "#C7C7C7"),
+    emojis = c("⭐️", "▢"),
+    width_px = 120, gap_px = 2
+  )
+}
+
+tab_impact$mean_FNCS = sapply(applicant_list, function(x) mean(x$FNCS$FNCS, na.rm=TRUE) |> round(0))
+
+# for chosing the background color:
+mean_FNCS_quantiles <- quantile(tab_impact$mean_FNCS, probs = c(0.25, 0.75))
+
+tab_impact$highest_citation_count = 
+  sapply(applicant_list, function(x) {
+    top <- which.max(x$FNCS$cited_by_count)
+    paste0(
+      x$FNCS$cited_by_count[top], " (",
+      x$FNCS$publication_year[top],
+      ")"
+    )
+  })
+      
+
+
+# dom = 't', # Removes "Show X entries" and search bar
+datatable(
+  tab_impact, 
+  escape=FALSE, 
+  width = "750px",
+  class = 'compact',
+  options = list(
+    pageLength = 5, 
+    autoWidth = TRUE, 
+    scrollCollapse = TRUE,
+    columnDefs = list(list(width = 'auto', targets = '_all')),
+    dom = 't', 
+    paging = FALSE),
+  colnames=c("Applicant", "# of papers in top-10% of popularity", "mean FNCS", "Highest citation count of a single paper")) %>%
+  formatStyle(
+    'mean_FNCS',
+    backgroundColor = styleInterval(
+      mean_FNCS_quantiles, c('#fbe3cc', '#fbf9cc', '#daf9d7')
+    )
+  )
+```
+
+
+## Impact vs. Rigor overview
+
+```{r}
+tab_combi <- left_join(tab_impact, tab_RRS, by="applicant")
+ggplot(tab_combi, aes(x=RRS_overall, y=mean_FNCS)) + 
+  geom_point() + 
+  geom_text_repel(
+    aes(label=applicant),
+    hjust=0,
+    nudge_x=0.02,
+    direction="y",
+    segment.size=0.1
+  ) + 
+  theme_bw() +
+  xlab("Overall Rigor Score (higher ist better)") + ylab("Mean Citation Score (higher ist better)") +
+  scale_x_continuous(limits = c(0, max(tab_combi$RRS_overall, na.rm = TRUE)*1.1))  # Ensure that x-axis starts at 0
+```
+
+
+
+
+## Session info
+
+`r paste0("*Analysis date: ", format(Sys.time(), tz = "UTC", usetz = TRUE) |> as.character(), ". RESQUER package version: ", packageVersion("RESQUER") |> as.character(), "; Version of overview sheet: 0.1.0*")`
+
+```{r}
+#| results: asis
+
+if (use_cache) {
+  cat(paste0("*Using cached results (date of analysis: ", format(store$date_analysis, tz = "UTC", usetz = TRUE), ").*\n"))
+}
+```
+

@@ -1,0 +1,10 @@
+^RESQUER\.Rproj$
+^\.Rproj\.user$
+_test
+^LICENSE\.md$
+^_pkgdown\.yml$
+^docs$
+^pkgdown$
+^\.github$
+.code-workspace
+_archive
